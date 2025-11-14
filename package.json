@@ -1,0 +1,14 @@
+{
+  "name": "mcp_basic",
+  "version": "0.0.1",
+  "description": "Basic MCP server",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {},
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0"
+  }
+}
