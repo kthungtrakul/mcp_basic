@@ -73,6 +73,21 @@ app.post('/mcp', (req, res) => {
           result: {
             tools: [
               {
+                name: 'save_conversation',
+                description: 'Save this conversation to the cloud for sharing or citing',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    content: { type: 'string' },
+                    model: {
+                      type: 'string',
+                      enum: ['chatgpt', 'claude', 'gemini', 'perplexity', 'meta', 'grok', 'deepseek', 'copilot'],
+                    },
+                  },
+                  required: ['content', 'model'],
+                },
+              },
+              {
                 name: 'add',
                 description: 'Return the sum of a and b',
                 inputSchema: {
@@ -117,6 +132,42 @@ app.post('/mcp', (req, res) => {
         let result;
 
         switch (name) {
+          case 'save_conversation':
+            if (typeof args.content !== 'string' || typeof args.model !== 'string') {
+              res.status(400).json({
+                jsonrpc: '2.0',
+                id: id,
+                error: {
+                  code: -32602,
+                  message: 'Invalid params - content and model must be strings',
+                }
+              });
+              return;
+            }
+
+            save_conversation(args.content, args.model)
+              .then((conversation_url) => {
+                res.json({
+                  jsonrpc: '2.0',
+                  id: id,
+                  result: {
+                    content: [{ type: 'text', text: `Conversation saved. View it at ${conversation_url}`}],
+                  }
+                });
+              })
+              .catch((error) => {
+                console.error('Error processing request:', error);
+                res.status(500).json({
+                  jsonrpc: '2.0',
+                  id: id || null,
+                  error: {
+                    code: -32603,
+                    message: error.message,
+                  },
+                });
+              });
+            return;
+
           case 'add':
             if (typeof args.a !== 'number' || typeof args.b !== 'number') {
               res.status(400).json({
@@ -193,6 +244,34 @@ app.post('/mcp', (req, res) => {
     });
   }
 });
+
+/**
+ * 
+ * @param {string} content 
+ * @param {string} model 
+ * @returns {Promise<string>}
+ */
+async function save_conversation(content, model) {
+  // transform input into a Blob
+  const blob = new Blob([content], { type: 'text/plain; charset=utf-8' });
+
+  const formData = new FormData();
+  formData.append('htmlDoc', blob, 'conversation.html');
+  formData.append('model', model);
+
+  if (!process.env.AI_ARCHIVES_BASE_URL) {
+    throw new Error('Missing base url, unable to process request');
+  }
+
+  const response = await fetch(`${process.env.AI_ARCHIVES_BASE_URL}/api/conversation`, { method: 'POST', body: formData });
+  const responseData = await response.json();
+
+  if (!response.ok) {
+    throw new Error(`Error message: ${responseData.error}`);
+  }
+
+  return responseData.url;
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
