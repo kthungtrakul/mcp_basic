@@ -160,7 +160,7 @@ app.post('/mcp', async (req, res) => {
     }
   } catch (error) {
     console.error('Error processing request:', error);
-    res.status(500).json({
+    res.json({
       jsonrpc: '2.0',
       id: id || null,
       error: {
