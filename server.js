@@ -10,7 +10,7 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Root MCP endpoint - this is what mcp-remote expects
-app.post('/mcp', (req, res) => {
+app.post('/mcp', async (req, res) => {
   console.log('Received MCP request:', JSON.stringify(req.body, null, 2));
 
   const { method, params, id, jsonrpc } = req.body;
@@ -87,29 +87,6 @@ app.post('/mcp', (req, res) => {
                   required: ['content', 'model'],
                 },
               },
-              {
-                name: 'add',
-                description: 'Return the sum of a and b',
-                inputSchema: {
-                  type: 'object',
-                  properties: {
-                    a: { type: 'number' },
-                    b: { type: 'number' },
-                  },
-                  required: ['a', 'b'],
-                },
-              },
-              {
-                name: 'reverse',
-                description: 'Return the input text reversed',
-                inputSchema: {
-                  type: 'object',
-                  properties: {
-                    text: { type: 'string' },
-                  },
-                  required: ['text'],
-                },
-              },
             ],
           },
         });
@@ -145,61 +122,10 @@ app.post('/mcp', (req, res) => {
               return;
             }
 
-            save_conversation(args.content, args.model)
-              .then((conversation_url) => {
-                res.json({
-                  jsonrpc: '2.0',
-                  id: id,
-                  result: {
-                    content: [{ type: 'text', text: `Conversation saved. View it at ${conversation_url}`}],
-                  }
-                });
-              })
-              .catch((error) => {
-                console.error('Error processing request:', error);
-                res.status(500).json({
-                  jsonrpc: '2.0',
-                  id: id || null,
-                  error: {
-                    code: -32603,
-                    message: error.message,
-                  },
-                });
-              });
-            return;
-
-          case 'add':
-            if (typeof args.a !== 'number' || typeof args.b !== 'number') {
-              res.status(400).json({
-                jsonrpc: '2.0',
-                id: id,
-                error: {
-                  code: -32602,
-                  message: 'Invalid params - a and b must be numbers',
-                },
-              });
-              return;
-            }
+            const conversationUrl = await save_conversation(args.content, args.model);
+            
             result = {
-              content: [{ type: 'text', text: `Result: ${args.a + args.b}` }],
-            };
-            break;
-
-          case 'reverse':
-            if (typeof args.text !== 'string') {
-              res.status(400).json({
-                jsonrpc: '2.0',
-                id: id,
-                error: {
-                  code: -32602,
-                  message: 'Invalid params - text must be a string',
-                },
-              });
-              return;
-            }
-            result = {
-              // helo -> [h,e,l,o] -> [o,l,e,h] -> olleh
-              content: [{ type: 'text', text: `Result: ${args.text.split('').reverse().join('')}` }],
+              content: [{ type: 'text', text: `Conversation saved. View it at ${conversationUrl}`}],
             };
             break;
 
