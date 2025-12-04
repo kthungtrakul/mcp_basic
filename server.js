@@ -2,9 +2,10 @@ import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import 'dotenv/config';
+import https from 'https';
+import fs from 'fs';
 
 const app = express();
-const PORT = 8000;
 
 // Middleware
 app.use(cors());
@@ -217,8 +218,27 @@ app.get('/mcp', (req, res) => {
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`▶ Remote MCP Server listening on http://0.0.0.0:${PORT}`);
-  console.log(`▶ Health check: http://0.0.0.0:${PORT}/health`);
-  console.log(`▶ MCP endpoint: http://0.0.0.0:${PORT}/mcp`);
-});
+const PORT = process.env.PORT || 8000;
+const { SSL_KEY_PATH, SSL_CERT_PATH } = process.env;
+
+if (!SSL_KEY_PATH || !SSL_CERT_PATH) {
+  // dev mode
+  console.log('▶ MCP Server launching in DEV mode');
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`▶ Remote MCP Server listening on http://0.0.0.0:${PORT}`);
+    console.log(`▶ Health check: http://0.0.0.0:${PORT}/health`);
+    console.log(`▶ MCP endpoint: http://0.0.0.0:${PORT}/mcp`);
+  });
+} else {
+  // prod mode
+  const options = {
+    key: fs.readFileSync(SSL_KEY_PATH),
+    cert: fs.readFileSync(SSL_CERT_PATH),
+  };
+
+  https.createServer(options, app).listen(PORT, '0.0.0.0', () => {
+    console.log(`▶ Remote MCP Server listening on https://0.0.0.0:${PORT}`);
+    console.log(`▶ Health check: https://0.0.0.0:${PORT}/health`);
+    console.log(`▶ MCP endpoint: https://0.0.0.0:${PORT}/mcp`);
+  });
+}
