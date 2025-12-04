@@ -1,16 +1,18 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
+import 'dotenv/config';
+import https from 'https';
+import fs from 'fs';
 
 const app = express();
-const PORT = 8000;
 
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
 
 // Root MCP endpoint - this is what mcp-remote expects
-app.post('/mcp', (req, res) => {
+app.post('/mcp', async (req, res) => {
   console.log('Received MCP request:', JSON.stringify(req.body, null, 2));
 
   const { method, params, id, jsonrpc } = req.body;
@@ -73,26 +75,18 @@ app.post('/mcp', (req, res) => {
           result: {
             tools: [
               {
-                name: 'add',
-                description: 'Return the sum of a and b',
+                name: 'save_conversation',
+                description: 'Save this conversation to the cloud for sharing or citing',
                 inputSchema: {
                   type: 'object',
                   properties: {
-                    a: { type: 'number' },
-                    b: { type: 'number' },
+                    content: { type: 'string' },
+                    model: {
+                      type: 'string',
+                      enum: ['chatgpt', 'claude', 'gemini', 'perplexity', 'meta', 'grok', 'deepseek', 'copilot'],
+                    },
                   },
-                  required: ['a', 'b'],
-                },
-              },
-              {
-                name: 'reverse',
-                description: 'Return the input text reversed',
-                inputSchema: {
-                  type: 'object',
-                  properties: {
-                    text: { type: 'string' },
-                  },
-                  required: ['text'],
+                  required: ['content', 'model'],
                 },
               },
             ],
@@ -117,38 +111,23 @@ app.post('/mcp', (req, res) => {
         let result;
 
         switch (name) {
-          case 'add':
-            if (typeof args.a !== 'number' || typeof args.b !== 'number') {
+          case 'save_conversation':
+            if (typeof args.content !== 'string' || typeof args.model !== 'string') {
               res.status(400).json({
                 jsonrpc: '2.0',
                 id: id,
                 error: {
                   code: -32602,
-                  message: 'Invalid params - a and b must be numbers',
-                },
+                  message: 'Invalid params - content and model must be strings',
+                }
               });
               return;
             }
-            result = {
-              content: [{ type: 'text', text: `Result: ${args.a + args.b}` }],
-            };
-            break;
 
-          case 'reverse':
-            if (typeof args.text !== 'string') {
-              res.status(400).json({
-                jsonrpc: '2.0',
-                id: id,
-                error: {
-                  code: -32602,
-                  message: 'Invalid params - text must be a string',
-                },
-              });
-              return;
-            }
+            const conversationUrl = await save_conversation(args.content, args.model);
+            
             result = {
-              // helo -> [h,e,l,o] -> [o,l,e,h] -> olleh
-              content: [{ type: 'text', text: `Result: ${args.text.split('').reverse().join('')}` }],
+              content: [{ type: 'text', text: `Conversation saved. View it at ${conversationUrl}`}],
             };
             break;
 
@@ -183,7 +162,7 @@ app.post('/mcp', (req, res) => {
     }
   } catch (error) {
     console.error('Error processing request:', error);
-    res.status(500).json({
+    res.json({
       jsonrpc: '2.0',
       id: id || null,
       error: {
@@ -193,6 +172,34 @@ app.post('/mcp', (req, res) => {
     });
   }
 });
+
+/**
+ * 
+ * @param {string} content 
+ * @param {string} model 
+ * @returns {Promise<string>}
+ */
+async function save_conversation(content, model) {
+  // transform input into a Blob
+  const blob = new Blob([content], { type: 'text/plain; charset=utf-8' });
+
+  const formData = new FormData();
+  formData.append('htmlDoc', blob, 'conversation.html');
+  formData.append('model', model);
+
+  if (!process.env.AI_ARCHIVES_BASE_URL) {
+    throw new Error('Missing base url, unable to process request');
+  }
+
+  const response = await fetch(`${process.env.AI_ARCHIVES_BASE_URL}/api/conversation`, { method: 'POST', body: formData });
+  const responseData = await response.json();
+
+  if (!response.ok) {
+    throw new Error(`Error message: ${responseData.error}`);
+  }
+
+  return responseData.url;
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -211,8 +218,27 @@ app.get('/mcp', (req, res) => {
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`▶ Remote MCP Server listening on http://0.0.0.0:${PORT}`);
-  console.log(`▶ Health check: http://0.0.0.0:${PORT}/health`);
-  console.log(`▶ MCP endpoint: http://0.0.0.0:${PORT}/mcp`);
-});
+const PORT = process.env.PORT || 8000;
+const { SSL_KEY_PATH, SSL_CERT_PATH } = process.env;
+
+if (!SSL_KEY_PATH || !SSL_CERT_PATH) {
+  // dev mode
+  console.log('▶ MCP Server launching in DEV mode');
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`▶ Remote MCP Server listening on http://0.0.0.0:${PORT}`);
+    console.log(`▶ Health check: http://0.0.0.0:${PORT}/health`);
+    console.log(`▶ MCP endpoint: http://0.0.0.0:${PORT}/mcp`);
+  });
+} else {
+  // prod mode
+  const options = {
+    key: fs.readFileSync(SSL_KEY_PATH),
+    cert: fs.readFileSync(SSL_CERT_PATH),
+  };
+
+  https.createServer(options, app).listen(PORT, '0.0.0.0', () => {
+    console.log(`▶ Remote MCP Server listening on https://0.0.0.0:${PORT}`);
+    console.log(`▶ Health check: https://0.0.0.0:${PORT}/health`);
+    console.log(`▶ MCP endpoint: https://0.0.0.0:${PORT}/mcp`);
+  });
+}
